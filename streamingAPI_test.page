@@ -72,7 +72,7 @@
       
       function create_connection(sessionId) {
         return new jsforce.Connection({
-            accessToken: '{!$API.Session_Id}'
+            accessToken: sessionId
         })
       }
 
@@ -109,7 +109,7 @@
 
       function init_app() {
         angular.module('appModule', [])
-          .controller('mainCtrl', function($scope, $timeout) {
+          .controller('mainCtrl', function($timeout) {
             
             this.$onInit = function () {
               this.title = 'Accounts'
