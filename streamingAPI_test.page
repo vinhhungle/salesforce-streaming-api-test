@@ -1,0 +1,162 @@
+<apex:page sidebar="false" showHeader="false" standardStylesheets="false">
+
+  <apex:stylesheet value="//cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css"/>
+
+  <apex:includeScript value="//cdnjs.cloudflare.com/ajax/libs/jsforce/1.7.0/jsforce.min.js"/>
+  <apex:includeScript value="//cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"/>
+
+  <!-- https://download.cometd.org/ (version 2.x.x) -->
+  <!-- https://docs.cometd.org/2.9.1/reference/ -->
+  <apex:includeScript value="{!URLFOR($Resource.streaming, 'org/cometd.js')}"/>
+  <apex:includeScript value="{!URLFOR($Resource.streaming, 'jquery.cometd.js')}"/>
+
+  <apex:includeScript value="//cdnjs.cloudflare.com/ajax/libs/angular.js/1.6.1/angular.min.js"/>
+
+  <style>
+    .ng-cloak { display: none; }
+  </style>
+
+  <div id="app-root" class="container ng-cloak">
+    <div ng-controller="mainCtrl as $ctrl" class="row">
+      <div class="col-sm-6">
+        <h1>{{$ctrl.title}}</h1>
+        <ul class="list-group">
+          <li class="list-group-item" ng-repeat="item in $ctrl.accounts | orderBy: '-CreatedDate' track by $index" ng-bind="item.Name"></li>
+        </ul>
+      </div>
+      <div class="col-sm-6">
+        <h1>Add Account</h1>
+        <div class="panel panel-default">
+        <div class="panel-body">
+          <div class="input-group">
+            <span class="input-group-addon" id="input-label-1">Account Name</span>
+            <input type="text" class="form-control" aria-describedby="input-label-1" ng-model="$ctrl.accountName" />
+          </div>
+          <br/>
+          <button type="button" class="btn btn-primary" ng-click="$ctrl.createAccount()">Add Account</button>
+        </div>
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.APP = {
+      __SESSION_ID__: '{!$API.Session_Id}'
+    }
+  </script>
+
+  <script>
+    (function(window, APP, jsforce, $, angular) {
+
+      $(function () {
+        APP.cometd = new $.Cometd()
+        APP.conn = create_connection(APP.__SESSION_ID__)
+
+        get_pushTopic_by_name(APP.conn, 'AllAccounts')
+          .then(function (result) {
+              console.log(result)
+
+              if (result.totalSize === 0) {
+                create_pushTopic(APP.conn, get_topic_options())
+                  .then(function (result) {
+                    console.log(result)
+                    init_app()
+                  })
+              
+              } else {
+                init_app()
+              }
+          })
+      })
+      
+      function create_connection(sessionId) {
+        return new jsforce.Connection({
+            accessToken: '{!$API.Session_Id}'
+        })
+      }
+
+      function get_pushTopic_by_name(conn, name) {
+        return conn.query("SELECT Id, Name FROM PushTopic WHERE Name=\'"+name+"\' LIMIT 1")
+      }
+
+      function create_pushTopic(conn, payload) {
+        return conn.sobject("PushTopic").create(payload)
+      }
+
+      function topic_subscribe(cometd, topic, callback) {
+        cometd.init({
+          url: window.location.protocol+'//'+window.location.hostname+'/cometd/37.0/',
+          requestHeaders: { Authorization: 'OAuth ' + APP.__SESSION_ID__}
+        })
+        return cometd.subscribe(topic, callback)
+      }
+
+      function get_topic_options() {
+        return {
+          ApiVersion: '37.0',
+          Name: 'AllAccounts',
+          Query: 'SELECT Id, Name FROM Account',
+          Description: 'All records for the Account object'
+        }
+        // PushTopic pushTopic = new PushTopic();
+        // pushTopic.ApiVersion = 37.0;
+        // pushTopic.Name = 'AllAccounts';
+        // pushTopic.Description = 'All records for the Account object';
+        // pushtopic.Query = 'SELECT Id, Name FROM Account';
+        // insert pushTopic;
+      }
+
+      function init_app() {
+        angular.module('appModule', [])
+          .controller('mainCtrl', function($scope, $timeout) {
+            
+            this.$onInit = function () {
+              this.title = 'Accounts'
+              this.accounts = []
+              this.accountName = ''
+              this.fetchAccounts()
+              this.subscribe()
+            }
+
+            this.subscribe = function () {
+              APP.subId = topic_subscribe(APP.cometd, '/topic/AllAccounts', this.accountOnChange.bind(this))
+            }
+
+            this.fetchAccounts = function () {
+              console.log('fetchAccounts')
+              APP.conn.query("SELECT Id, Name, CreatedBy.Name, CreatedDate FROM Account")
+                .then(function (result) {
+                  console.log(result)
+                  $timeout(function () {
+                    this.accounts = result.records
+                  }.bind(this))
+                }.bind(this))
+            }
+
+            this.createAccount = function () {
+              console.log('createAccount', this.accountName)
+              if (this.accountName !== '') {
+                APP.conn.sobject("Account")
+                  .create({ Name : this.accountName })
+                  .then(function (result) {
+                    console.log(result)
+                  })
+              }
+            }
+
+            this.accountOnChange = function (message) {
+              console.log('Account changed: ', message)
+              this.fetchAccounts()
+            }
+
+          })
+
+        angular.bootstrap(document.getElementById('app-root'), ['appModule'])
+      }
+
+    })(window, window.APP, jsforce, jQuery, angular)
+    
+  </script>
+
+</apex:page>
